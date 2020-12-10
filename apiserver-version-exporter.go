@@ -38,7 +38,7 @@ var (
 	scrapeTimeout       = kingpin.Flag("exporter.scrapeTimeout", "The scrape timeout of the exporter.").Default("4").String()
 	kubeVersionEndpoint = kingpin.Flag("exporter.apiserverEndpoint", "The apiserver endpoint to scrape from.").Default("https://kubernetes.default.svc.cluster.local/version").String()
 	apiBuildInfo        = promauto.NewGaugeVec(prometheus.GaugeOpts{
-		Name: "kube_build_info",
+		Name: "kubernetes_build_info",
 		Help: "Build info of the component"},
 		[]string{"major", "minor", "gitVersion", "gitTreeState", "gitCommit", "buildDate", "goVersion", "compiler", "platform"},
 	)
