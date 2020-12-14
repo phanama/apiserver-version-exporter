@@ -1,10 +1,14 @@
 package main
 
 import (
+	"fmt"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
+	"io/ioutil"
 
 	"github.com/go-kit/kit/log/level"
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,6 +40,8 @@ var (
 	metricsPath         = kingpin.Flag("web.metricsPath", "Metrics expose path.").Default("/metrics").String()
 	scrapePeriod        = kingpin.Flag("exporter.scrapePeriod", "The scrape period of the exporter.").Default("5").String()
 	scrapeTimeout       = kingpin.Flag("exporter.scrapeTimeout", "The scrape timeout of the exporter.").Default("4").String()
+	apiserverCACert     = kingpin.Flag("exporter.apiserverCACert", "The CA crt file to be used as a trust anchor to communicate with the apiserver.").Default("").String()
+	insecureSkipTLSVerify = kingpin.Flag("exporter.insecureSkipTLSVerify", "Whether to skip TLS verify or not").Default("false").String()
 	kubeVersionEndpoint = kingpin.Flag("exporter.apiserverEndpoint", "The apiserver endpoint to scrape from.").Default("https://kubernetes.default.svc.cluster.local/version").String()
 	apiBuildInfo        = promauto.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "kubernetes_build_info",
@@ -50,7 +56,7 @@ func recordVersion() {
 			version := Version{}
 			err := getApiServerVersion(*kubeVersionEndpoint, &version)
 			if err != nil {
-				level.Error(logger).Log("msg", err)
+				level.Info(logger).Log("msg", err)
 			}
 
 			apiBuildInfo.WithLabelValues(
@@ -80,8 +86,32 @@ func getApiServerVersion(kubeVersionEndpoint string, version interface{}) error 
 		return err
 	}
 
+	tr := &http.Transport{}
+
+	insecure,_ := strconv.ParseBool(*insecureSkipTLSVerify)
+	if insecure {
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+
+	if *apiserverCACert != "" {
+		caCertPEM, err := ioutil.ReadFile(*apiserverCACert)
+		if err != nil {
+			return err
+		}
+
+		caCerts := x509.NewCertPool()
+
+		ok := caCerts.AppendCertsFromPEM([]byte(caCertPEM))
+		if !ok {
+			err := fmt.Errorf("Failed to parse CA Certificate %s", *apiserverCACert)
+			return err
+		}
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: false, RootCAs: caCerts}
+	}
+
 	client := http.Client{
-		Timeout: time.Duration(timeout) * time.Second,
+		Timeout:   time.Duration(timeout) * time.Second,
+		Transport: tr,
 	}
 	resp, err := client.Get(kubeVersionEndpoint)
 	if err != nil {
